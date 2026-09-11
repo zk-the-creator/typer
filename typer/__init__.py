@@ -12,11 +12,11 @@ from ._click.termui import progressbar as progressbar
 from ._click.termui import prompt as prompt
 from ._click.termui import secho as secho
 from ._click.termui import style as style
-from ._click.utils import echo as echo
 from ._click.utils import format_filename as format_filename
 from ._click.utils import get_app_dir as get_app_dir
 from ._click.utils import get_binary_stream as get_binary_stream
 from ._click.utils import get_text_stream as get_text_stream
+from .console import echo as echo
 from .exceptions import Abort as Abort
 from .exceptions import Exit as Exit
 from .exceptions import TyperException as TyperException
