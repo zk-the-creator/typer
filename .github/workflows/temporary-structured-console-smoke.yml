@@ -1,0 +1,58 @@
+name: Temporary Structured Console Smoke
+
+on:
+  push:
+    branches:
+      - structured-console-rendering
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package
+        run: python -m pip install -e .
+      - name: Run structured console smoke checks
+        run: |
+          python - <<'PY'
+          import typer
+          from typer.testing import CliRunner
+
+          runner = CliRunner()
+
+          app = typer.Typer(developer_mode=True, add_completion=False)
+
+          @app.command()
+          def main():
+              typer.echo({"answer": 42})
+
+          normal = runner.invoke(app, [])
+          assert normal.exit_code == 0, normal.output
+          assert normal.output == "{'answer': 42}\n", normal.output
+
+          developer = runner.invoke(app, ["--developer"])
+          assert developer.exit_code == 0, developer.output
+          assert "Value" in developer.output
+          assert "type: builtins.dict" in developer.output
+          assert "value: {'answer': 42}" in developer.output
+          assert "repr: {'answer': 42}" in developer.output
+
+          root = typer.Typer(developer_mode=True, add_completion=False)
+          child = typer.Typer(add_completion=False)
+
+          @child.command()
+          def show():
+              typer.echo((1, 2, 3))
+
+          root.add_typer(child, name="child")
+          nested = runner.invoke(root, ["--developer", "child", "show"])
+          assert nested.exit_code == 0, nested.output
+          assert "type: builtins.tuple" in nested.output
+          assert "value: (1, 2, 3)" in nested.output
+          PY
