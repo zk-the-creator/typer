@@ -6,13 +6,41 @@ on:
       - structured-console-rendering
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: structured-console-rendering
+      - name: Correct developer option implementation
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("typer/main.py")
+          text = path.read_text()
+          old = '''    return _click.Option(\n        ["--developer"],\n        is_flag=True,\n        is_eager=True,\n        expose_value=False,\n        callback=_developer_mode_callback,\n        help="Enable developer mode with structured console rendering.",\n    )'''
+          new = '''    return TyperOption(\n        param_decls=["developer", "--developer"],\n        is_flag=True,\n        is_eager=True,\n        expose_value=False,\n        callback=_developer_mode_callback,\n        help="Enable developer mode with structured console rendering.",\n    )'''
+          if old in text:
+              path.write_text(text.replace(old, new, 1))
+          elif new not in text:
+              raise RuntimeError("Developer option patch anchor not found")
+          PY
+      - name: Commit correction
+        shell: bash
+        run: |
+          if git diff --quiet -- typer/main.py; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add typer/main.py
+          git commit -m "Use TyperOption for developer mode flag"
+          git push origin HEAD:structured-console-rendering
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
