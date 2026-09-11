@@ -23,6 +23,7 @@ from ._click import types
 from ._click.globals import get_current_context
 from ._typing import get_args, get_origin, is_literal_type, is_union, literal_values
 from .completion import get_completion_inspect_parameters
+from .console import DEVELOPER_MODE_KEY
 from .core import (
     DEFAULT_MARKUP_MODE,
     HAS_RICH,
@@ -114,6 +115,25 @@ def get_install_completion_arguments() -> tuple[_click.Parameter, _click.Paramet
     click_install_param, _ = get_click_param(install_param)
     click_show_param, _ = get_click_param(show_param)
     return click_install_param, click_show_param
+
+
+def _developer_mode_callback(
+    ctx: _click.Context, _param: _click.Parameter, value: bool
+) -> bool:
+    if value:
+        ctx.meta[DEVELOPER_MODE_KEY] = True
+    return value
+
+
+def get_developer_mode_argument() -> _click.Parameter:
+    return _click.Option(
+        ["--developer"],
+        is_flag=True,
+        is_eager=True,
+        expose_value=False,
+        callback=_developer_mode_callback,
+        help="Enable developer mode with structured console rendering.",
+    )
 
 
 class Typer:
@@ -408,6 +428,24 @@ class Typer:
                 """
             ),
         ] = True,
+        developer_mode: Annotated[
+            bool,
+            Doc(
+                """
+                Enable developer mode for this application.
+                When enabled, the root command exposes a `--developer` option that
+                activates structured console rendering for the invocation.
+
+                **Example**
+
+                ```python
+                import typer
+
+                app = typer.Typer(developer_mode=True)
+                ```
+                """
+            ),
+        ] = False,
         # Rich settings
         rich_markup_mode: Annotated[
             MarkupMode,
@@ -518,6 +556,7 @@ class Typer:
         ] = True,
     ):
         self._add_completion = add_completion
+        self.developer_mode = developer_mode
         self.rich_markup_mode: MarkupMode = rich_markup_mode
         self.rich_help_panel = rich_help_panel
         self.suggest_commands = suggest_commands
@@ -1171,6 +1210,8 @@ def get_group(typer_instance: Typer) -> TyperGroup:
 
 
 def get_command(typer_instance: Typer) -> _click.Command:
+    if typer_instance.developer_mode:
+        click_developer_param = get_developer_mode_argument()
     if typer_instance._add_completion:
         click_install_param, click_show_param = get_install_completion_arguments()
     if (
@@ -1184,6 +1225,8 @@ def get_command(typer_instance: Typer) -> _click.Command:
         if typer_instance._add_completion:
             click_command.params.append(click_install_param)
             click_command.params.append(click_show_param)
+        if typer_instance.developer_mode:
+            click_command.params.append(click_developer_param)
         return click_command
     elif len(typer_instance.registered_commands) == 1:
         # Create a single Command
@@ -1202,6 +1245,8 @@ def get_command(typer_instance: Typer) -> _click.Command:
         if typer_instance._add_completion:
             click_command.params.append(click_install_param)
             click_command.params.append(click_show_param)
+        if typer_instance.developer_mode:
+            click_command.params.append(click_developer_param)
         return click_command
     raise RuntimeError(
         "Could not get a command for this Typer instance"
