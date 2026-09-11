@@ -126,8 +126,8 @@ def _developer_mode_callback(
 
 
 def get_developer_mode_argument() -> _click.Parameter:
-    return _click.Option(
-        ["--developer"],
+    return TyperOption(
+        param_decls=["developer", "--developer"],
         is_flag=True,
         is_eager=True,
         expose_value=False,
