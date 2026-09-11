@@ -1,0 +1,141 @@
+name: Temporary Structured Console Patch
+
+on:
+  push:
+    branches:
+      - structured-console-rendering
+
+permissions:
+  contents: write
+
+jobs:
+  patch-main:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: structured-console-rendering
+      - name: Patch typer/main.py
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("typer/main.py")
+          text = path.read_text()
+
+          replacements = [
+              (
+                  "from .completion import get_completion_inspect_parameters\nfrom .core import (",
+                  "from .completion import get_completion_inspect_parameters\nfrom .console import DEVELOPER_MODE_KEY\nfrom .core import (",
+              ),
+              (
+                  "def get_install_completion_arguments() -> tuple[_click.Parameter, _click.Parameter]:\n"
+                  "    install_param, show_param = get_completion_inspect_parameters()\n"
+                  "    click_install_param, _ = get_click_param(install_param)\n"
+                  "    click_show_param, _ = get_click_param(show_param)\n"
+                  "    return click_install_param, click_show_param\n\n\nclass Typer:",
+                  "def get_install_completion_arguments() -> tuple[_click.Parameter, _click.Parameter]:\n"
+                  "    install_param, show_param = get_completion_inspect_parameters()\n"
+                  "    click_install_param, _ = get_click_param(install_param)\n"
+                  "    click_show_param, _ = get_click_param(show_param)\n"
+                  "    return click_install_param, click_show_param\n\n\n"
+                  "def _developer_mode_callback(\n"
+                  "    ctx: _click.Context, _param: _click.Parameter, value: bool\n"
+                  ") -> bool:\n"
+                  "    if value:\n"
+                  "        ctx.meta[DEVELOPER_MODE_KEY] = True\n"
+                  "    return value\n\n\n"
+                  "def get_developer_mode_argument() -> _click.Parameter:\n"
+                  "    return _click.Option(\n"
+                  "        [\"--developer\"],\n"
+                  "        is_flag=True,\n"
+                  "        is_eager=True,\n"
+                  "        expose_value=False,\n"
+                  "        callback=_developer_mode_callback,\n"
+                  "        help=\"Enable developer mode with structured console rendering.\",\n"
+                  "    )\n\n\n"
+                  "class Typer:",
+              ),
+              (
+                  "        ] = True,\n        # Rich settings\n        rich_markup_mode: Annotated[",
+                  "        ] = True,\n"
+                  "        developer_mode: Annotated[\n"
+                  "            bool,\n"
+                  "            Doc(\n"
+                  "                \"\"\"\n"
+                  "                Enable developer mode for this application.\n"
+                  "                When enabled, the root command exposes a `--developer` option that\n"
+                  "                activates structured console rendering for the invocation.\n\n"
+                  "                **Example**\n\n"
+                  "                ```python\n"
+                  "                import typer\n\n"
+                  "                app = typer.Typer(developer_mode=True)\n"
+                  "                ```\n"
+                  "                \"\"\"\n"
+                  "            ),\n"
+                  "        ] = False,\n"
+                  "        # Rich settings\n"
+                  "        rich_markup_mode: Annotated[",
+              ),
+              (
+                  "        self._add_completion = add_completion\n        self.rich_markup_mode: MarkupMode = rich_markup_mode",
+                  "        self._add_completion = add_completion\n        self.developer_mode = developer_mode\n        self.rich_markup_mode: MarkupMode = rich_markup_mode",
+              ),
+              (
+                  "def get_command(typer_instance: Typer) -> _click.Command:\n    if typer_instance._add_completion:",
+                  "def get_command(typer_instance: Typer) -> _click.Command:\n"
+                  "    if typer_instance.developer_mode:\n"
+                  "        click_developer_param = get_developer_mode_argument()\n"
+                  "    if typer_instance._add_completion:",
+              ),
+              (
+                  "        if typer_instance._add_completion:\n"
+                  "            click_command.params.append(click_install_param)\n"
+                  "            click_command.params.append(click_show_param)\n"
+                  "        return click_command\n"
+                  "    elif len(typer_instance.registered_commands) == 1:",
+                  "        if typer_instance._add_completion:\n"
+                  "            click_command.params.append(click_install_param)\n"
+                  "            click_command.params.append(click_show_param)\n"
+                  "        if typer_instance.developer_mode:\n"
+                  "            click_command.params.append(click_developer_param)\n"
+                  "        return click_command\n"
+                  "    elif len(typer_instance.registered_commands) == 1:",
+              ),
+              (
+                  "        if typer_instance._add_completion:\n"
+                  "            click_command.params.append(click_install_param)\n"
+                  "            click_command.params.append(click_show_param)\n"
+                  "        return click_command\n"
+                  "    raise RuntimeError(",
+                  "        if typer_instance._add_completion:\n"
+                  "            click_command.params.append(click_install_param)\n"
+                  "            click_command.params.append(click_show_param)\n"
+                  "        if typer_instance.developer_mode:\n"
+                  "            click_command.params.append(click_developer_param)\n"
+                  "        return click_command\n"
+                  "    raise RuntimeError(",
+              ),
+          ]
+
+          for old, new in replacements:
+              if new in text:
+                  continue
+              if old not in text:
+                  raise RuntimeError(f"Patch anchor not found: {old[:80]!r}")
+              text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          PY
+      - name: Commit patch
+        shell: bash
+        run: |
+          if git diff --quiet -- typer/main.py; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add typer/main.py
+          git commit -m "Add developer mode activation to Typer"
+          git push origin HEAD:structured-console-rendering
