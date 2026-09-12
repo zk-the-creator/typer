@@ -116,21 +116,12 @@ def main(
                 "\n|==============[SUITE 4: FAILURES / ECHO SEMANTICS]==============|"
             )
 
-            print("\n-- Broken __str__ --")
-            typer.echo(BrokenStr())
-
-            print("\n-- Broken __repr__ --")
-            typer.echo(BrokenRepr())
-
-            print("\n-- Broken __str__ and __repr__ --")
-            typer.echo(BrokenBoth())
-
             print("\n-- Explicit StringIO destination --")
             stream = StringIO()
             typer.echo({"destination": "StringIO"}, file=stream)
             print(repr(stream.getvalue()))
 
-            print("\n-- nl=False (the marker should immediately follow the output) --")
+            print("\n-- nl=False (the marker should touch the output) --")
             typer.echo("no trailing newline", nl=False)
             print("<-- marker")
 
@@ -143,6 +134,21 @@ def main(
 
             print("\n-- err=True (this section is written to stderr) --")
             typer.echo({"destination": "stderr"}, err=True)
+
+            hostile_values = (
+                ("Broken __str__", BrokenStr()),
+                ("Broken __repr__", BrokenRepr()),
+                ("Broken __str__ and __repr__", BrokenBoth()),
+            )
+            for label, value in hostile_values:
+                print(f"\n-- {label} --")
+                try:
+                    typer.echo(value)
+                except Exception as exception:
+                    print(
+                        "caught expected normal-mode exception:",
+                        f"{type(exception).__name__}: {exception}",
+                    )
 
         case 5:
             # Root developer mode should propagate through child contexts
@@ -161,14 +167,25 @@ def main(
             child.add_typer(grandchild, name="grandchild")
             nested_root.add_typer(child, name="child")
 
-            result = CliRunner().invoke(
+            command_path = ["child", "grandchild", "show"]
+            runner = CliRunner()
+            normal_result = runner.invoke(nested_root, command_path)
+            developer_result = runner.invoke(
                 nested_root,
-                ["--developer", "child", "grandchild", "show"],
+                ["--developer", *command_path],
             )
-            print("exit code:", result.exit_code)
-            print(result.output, end="")
-            if result.exception:
-                print("exception:", repr(result.exception))
+
+            print("\n-- Nested invocation without --developer --")
+            print("exit code:", normal_result.exit_code)
+            print(normal_result.output, end="")
+            if normal_result.exception:
+                print("exception:", repr(normal_result.exception))
+
+            print("\n-- Nested invocation with --developer --")
+            print("exit code:", developer_result.exit_code)
+            print(developer_result.output, end="")
+            if developer_result.exception:
+                print("exception:", repr(developer_result.exception))
 
         case 6:
             # A mounted child cannot introduce developer mode to a plain root
