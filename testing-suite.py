@@ -1,82 +1,239 @@
-from unittest import case
-
-import typer
-from pathlib import Path
-from uuid import UUID
 from datetime import datetime
 from enum import Enum
+from io import StringIO
+import os
+from pathlib import Path
+from uuid import UUID
+
+import typer
+from typer.core import HAS_RICH
+from typer.testing import CliRunner
+
+
+class SomeEnum(str, Enum):
+    A = "A"
+    B = "B"
+    C = "C"
+
+
+class CustomDisplay:
+    def __str__(self) -> str:
+        return "CustomDisplay as text"
+
+    def __repr__(self) -> str:
+        return "CustomDisplay(value=42)"
+
+
+class BrokenStr:
+    def __str__(self) -> str:
+        raise RuntimeError("intentional __str__ failure")
+
+    def __repr__(self) -> str:
+        return "BrokenStr()"
+
+
+class BrokenRepr:
+    def __str__(self) -> str:
+        return "BrokenRepr as text"
+
+    def __repr__(self) -> str:
+        raise RuntimeError("intentional __repr__ failure")
+
+
+class BrokenBoth:
+    def __str__(self) -> str:
+        raise RuntimeError("intentional __str__ failure")
+
+    def __repr__(self) -> str:
+        raise RuntimeError("intentional __repr__ failure")
+
 
 print("version:", typer.__version__)
 print("loaded from:", typer.__file__)
 
 app = typer.Typer(developer_mode=True, add_completion=False)
 
+
 @app.command()
-def main(suite_num : int = typer.Argument(..., help="The testing suite number to run.")):
+def main(
+    suite_num: int = typer.Argument(..., help="The testing suite number to run."),
+    some_path: Path = typer.Option(
+        Path("typer/testing.py"),
+        help="Path value used by suite 2.",
+    ),
+    some_uuid: UUID = typer.Option(
+        UUID("a8098c1a-f86e-11da-bd1a-00112444be1e"),
+        help="UUID value used by suite 2.",
+    ),
+    some_datetime: datetime = typer.Option(
+        datetime(2026, 9, 12, 12, 34, 56),
+        help="Datetime value used by suite 2.",
+    ),
+    some_enum: SomeEnum = typer.Option(
+        SomeEnum.A,
+        help="Enum value used by suite 2.",
+    ),
+) -> None:
+    match suite_num:
+        case 1:
+            # Testing Suite 1: Primitive and container types
+            values = (
+                10,
+                3.141589763,
+                "neat",
+                False,
+                None,
+                [1, 2, 2, 4, 6],
+                (1, 2, 3, 3),
+                {1, 2, 3},
+                {"A": 1, "B": 2, "C": 3},
+            )
 
-  match suite_num:
-    case 1:
-      # Testing Suite 1: Primitives/container types
-      some_int = 10
-      some_float = 3.141589763
-      some_str = "neat"
-      some_bool = False
-      some_none = None
-      some_list = [1,2,2,4,6] # ordered, mutable (elements as well), allows duplicates
-      some_tuple = (1,2,3,3) # ordered, immutable, allows duplicates
-      some_set = {1,2,3} # unordered, mutable (elements must be immutable), automatically removes duplicates
-      some_dict = {"A":1, "B":2, "C":3} # unordered, mutable (elements must be immutable), keys must be unique
+            print(
+                "\n|==============[SUITE 1: PRIMITIVES / CONTAINERS]==============|"
+            )
+            for value in values:
+                typer.echo(value)
 
-      typer.echo("\n|==============[TESTING SUITE 1: PRIMITIVES/CONTAINER TYPES]==============|")
-      typer.echo(some_int)
-      typer.echo(some_float)
-      typer.echo(some_str)
-      typer.echo(some_bool)
-      typer.echo(some_none)
-      typer.echo(some_list)
-      typer.echo(some_tuple)
-      typer.echo(some_set)
-      typer.echo(some_dict)
+        case 2:
+            # Testing Suite 2: Values converted by Typer from CLI text
+            print(
+                "\n|==============[SUITE 2: TYPER-CONVERTED CLI VALUES]==============|"
+            )
+            typer.echo(some_path)
+            typer.echo(some_uuid)
+            typer.echo(some_datetime)
+            typer.echo(some_enum)
 
-    case 2:
-      # Testing Suite 2: Typer-converted CLI values
-      some_path = Path("typer/testing.py")
-      some_uuid = UUID('a8098c1a-f86e-11da-bd1a-00112444be1e')
-      some_datetime = datetime.now()
-      some_enum = Enum("SomeEnum", "A B C")
+        case 3:
+            # Testing Suite 3: An object with distinct __str__ and __repr__
+            print("\n|==============[SUITE 3: CUSTOM CLASS]==============|")
+            typer.echo(CustomDisplay())
 
-      typer.echo("\n|==============[TESTING SUITE 2: TYPER-CONVERTED CLI VALUES]==============|")
-      typer.echo(some_path)
-      typer.echo(some_uuid)
-      typer.echo(some_datetime)
-      typer.echo(some_enum)
+        case 4:
+            # Testing Suite 4: Defensive rendering and Click echo arguments
+            print(
+                "\n|==============[SUITE 4: FAILURES / ECHO SEMANTICS]==============|"
+            )
 
-    case 3:
-      # Testing Suite 3: Custom classes
-      typer.echo("\n|==============[TESTING SUITE 3: CUSTOM CLASSES]==============|")
+            print("\n-- Broken __str__ --")
+            typer.echo(BrokenStr())
 
-    case 4:
-      # Testing Suite 4: Error handling
-      typer.echo("\n|==============[TESTING SUITE 4: ERROR HANDLING]==============|")
+            print("\n-- Broken __repr__ --")
+            typer.echo(BrokenRepr())
 
-    case 5:
-      # Testing Suite 5: Nested apps with root inheritance from developer_mode=True
-      typer.echo("\n|==============[TESTING SUITE 5: NESTED APPS]==============|")
+            print("\n-- Broken __str__ and __repr__ --")
+            typer.echo(BrokenBoth())
 
-    case 6:
-      # Testing Suite 6: Root without Developer mode, child with it, child should not expose --developer
-      typer.echo("\n|==============[TESTING SUITE 6: ROOT WITHOUT DEVELOPER MODE]==============|")
+            print("\n-- Explicit StringIO destination --")
+            stream = StringIO()
+            typer.echo({"destination": "StringIO"}, file=stream)
+            print(repr(stream.getvalue()))
 
-    case 7:
-      # Testing Suite 7: TYPER_USE_RICH=0 
-      typer.echo("\n|==============[TESTING SUITE 7: TYPER_USE_RICH=0]==============|")
+            print("\n-- nl=False (the marker should immediately follow the output) --")
+            typer.echo("no trailing newline", nl=False)
+            print("<-- marker")
 
-    case 8:
-      # Testing Suite 8: Rich-looking markup, Multiline strings, and other rich features.
-      typer.echo("\n|==============[TESTING SUITE 8: RICH FEATURES]==============|")
+            print("\n-- color=False (rendered output should contain no ANSI codes) --")
+            color_stream = StringIO()
+            typer.echo({"color": False}, file=color_stream, color=False)
+            color_output = color_stream.getvalue()
+            print(repr(color_output))
+            print("contains ANSI escape:", "\\x1b[" in color_output)
 
-    case _:
-      typer.echo("Invalid testing suite number. Please provide a valid suite number (1-8).")
+            print("\n-- err=True (this section is written to stderr) --")
+            typer.echo({"destination": "stderr"}, err=True)
+
+        case 5:
+            # Root developer mode should propagate through child contexts
+            print(
+                "\n|==============[SUITE 5: NESTED ROOT INHERITANCE]==============|"
+            )
+
+            nested_root = typer.Typer(developer_mode=True, add_completion=False)
+            child = typer.Typer()
+            grandchild = typer.Typer()
+
+            @grandchild.command("show")
+            def nested_show() -> None:
+                typer.echo({"level": "grandchild"})
+
+            child.add_typer(grandchild, name="grandchild")
+            nested_root.add_typer(child, name="child")
+
+            result = CliRunner().invoke(
+                nested_root,
+                ["--developer", "child", "grandchild", "show"],
+            )
+            print("exit code:", result.exit_code)
+            print(result.output, end="")
+            if result.exception:
+                print("exception:", repr(result.exception))
+
+        case 6:
+            # A mounted child cannot introduce developer mode to a plain root
+            print(
+                "\n|==============[SUITE 6: CHILD CAPABILITY BOUNDARY]==============|"
+            )
+
+            plain_root = typer.Typer(add_completion=False)
+            enabled_child = typer.Typer(
+                developer_mode=True,
+                add_completion=False,
+            )
+
+            @enabled_child.command()
+            def status() -> None:
+                typer.echo({"application": "child"})
+
+            plain_root.add_typer(enabled_child, name="child")
+            runner = CliRunner()
+
+            mounted_help = runner.invoke(plain_root, ["child", "--help"])
+            mounted_attempt = runner.invoke(
+                plain_root,
+                ["child", "--developer"],
+            )
+            standalone_help = runner.invoke(enabled_child, ["--help"])
+            standalone_run = runner.invoke(enabled_child, ["--developer"])
+
+            print(
+                "mounted child help exposes --developer:",
+                "--developer" in mounted_help.output,
+            )
+            print("mounted --developer exit code:", mounted_attempt.exit_code)
+            print(
+                "standalone child help exposes --developer:",
+                "--developer" in standalone_help.output,
+            )
+            print("standalone --developer exit code:", standalone_run.exit_code)
+            print(standalone_run.output, end="")
+
+        case 7:
+            # TYPER_USE_RICH is read when Typer is imported, before this case runs
+            print("\n|==============[SUITE 7: RICH DISABLED]==============|")
+            print("TYPER_USE_RICH:", os.getenv("TYPER_USE_RICH"))
+            print("typer.core.HAS_RICH:", HAS_RICH)
+            typer.echo({"renderer": "plain", "rich_enabled": HAS_RICH})
+
+        case 8:
+            # Values that could be misinterpreted or formatted by Rich
+            print("\n|==============[SUITE 8: RICH-SENSITIVE VALUES]==============|")
+            rich_sensitive_values = (
+                "[bold]this is data, not markup[/bold]",
+                "<angle brackets & symbols>",
+                "Unicode: café — 東京 — 🐍",
+                "first line\nsecond line\nthird line",
+                "\x1b[31mraw ANSI-looking text\x1b[0m",
+            )
+            for value in rich_sensitive_values:
+                typer.echo(value)
+
+        case _:
+            raise typer.BadParameter(
+                "Invalid testing suite number. Choose a number from 1 through 8."
+            )
+
 
 if __name__ == "__main__":
- app()
+    app()
