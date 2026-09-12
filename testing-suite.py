@@ -139,7 +139,7 @@ def main(
             typer.echo({"color": False}, file=color_stream, color=False)
             color_output = color_stream.getvalue()
             print(repr(color_output))
-            print("contains ANSI escape:", "\\x1b[" in color_output)
+            print("contains ANSI escape:", "\x1b[" in color_output)
 
             print("\n-- err=True (this section is written to stderr) --")
             typer.echo({"destination": "stderr"}, err=True)
