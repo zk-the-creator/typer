@@ -21,16 +21,26 @@ def _qualified_type_name(value: Any) -> str:
     return f"{value_type.__module__}.{value_type.__qualname__}"
 
 
+def _escape_control_characters(value: str) -> str:
+    """Escape non-printing characters while preserving intentional newlines."""
+    return "".join(
+        character
+        if character == "\n" or character.isprintable()
+        else ascii(character)[1:-1]
+        for character in value
+    )
+
+
 def _safe_str(value: Any) -> str:
     try:
-        return str(value)
+        return _escape_control_characters(str(value))
     except Exception:
         return "<str unavailable>"
 
 
 def _safe_repr(value: Any) -> str:
     try:
-        return repr(value)
+        return _escape_control_characters(repr(value))
     except Exception:
         return "<repr unavailable>"
 
@@ -59,7 +69,7 @@ def _render_rich(message: Any) -> str:
         Text.assemble(("repr: ", "bold magenta"), _safe_repr(message)),
     )
     console.print(renderable, end="")
-    return buffer.getvalue()
+    return buffer.getvalue().removesuffix("\n")
 
 
 def _render_structured(message: Any) -> str:
