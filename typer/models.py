@@ -215,6 +215,8 @@ class CommandInfo:
         deprecated: bool = False,
         # Rich settings
         rich_help_panel: str | None = None,
+        developer_mode: bool = False,
+        developer: bool = False,
     ):
         self.name = name
         self.cls = cls
@@ -230,6 +232,8 @@ class CommandInfo:
         self.deprecated = deprecated
         # Rich settings
         self.rich_help_panel = rich_help_panel
+        self.developer_mode = developer_mode or developer
+        self.developer = self.developer_mode
 
 
 class TyperInfo:
@@ -256,6 +260,8 @@ class TyperInfo:
         deprecated: bool = Default(False),
         # Rich settings
         rich_help_panel: str | None = Default(None),
+        developer_mode: bool = Default(False),
+        developer: bool = Default(False),
     ):
         self.typer_instance = typer_instance
         self.name = name
@@ -275,6 +281,8 @@ class TyperInfo:
         self.hidden = hidden
         self.deprecated = deprecated
         self.rich_help_panel = rich_help_panel
+        self.developer_mode = developer_mode
+        self.developer = developer
 
 
 class ParameterInfo:

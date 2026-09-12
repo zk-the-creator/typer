@@ -2,6 +2,7 @@ import os
 import re
 import sys
 from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 from functools import update_wrapper
 from types import ModuleType, TracebackType
 from typing import (
@@ -28,7 +29,7 @@ from ._compat import (
     strip_ansi,
     text_streams,
 )
-from .globals import resolve_color_default
+from .globals import _local, get_current_context, resolve_color_default
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -189,6 +190,78 @@ class LazyFile:
         return iter(self._f)  # type: ignore
 
 
+
+@contextmanager
+def _suppress_developer_mode() -> Iterator[None]:
+    prev = getattr(_local, "suppress_developer_mode", False)
+    _local.suppress_developer_mode = True
+    try:
+        yield
+    finally:
+        _local.suppress_developer_mode = prev
+
+
+def is_developer_mode_active() -> bool:
+    if getattr(_local, "suppress_developer_mode", False):
+        return False
+    ctx = get_current_context(silent=True)
+    if ctx is None:
+        return False
+    root_ctx = ctx.find_root()
+    return bool(
+        getattr(root_ctx, "_developer_mode_active", False)
+        or root_ctx.meta.get("typer.developer_mode", False)
+    )
+
+
+def _escape_control_codes(s: str) -> str:
+    out: list[str] = []
+    for ch in s:
+        code = ord(ch)
+        if ch == "\r":
+            out.append("\\r")
+        elif (
+            (code < 32 and ch not in ("\n", "\t"))
+            or code == 127
+            or (0x80 <= code <= 0x9F)
+        ):
+            out.append(f"\\x{code:02x}")
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def _get_fully_qualified_type_name(value: Any) -> str:
+    cls = type(value)
+    module = getattr(cls, "__module__", None)
+    qualname = getattr(cls, "__qualname__", getattr(cls, "__name__", str(cls)))
+    if module is None:
+        return qualname
+    if module.startswith("pathlib."):
+        module = "pathlib"
+    return f"{module}.{qualname}"
+
+
+def _format_developer_output(value: Any) -> str:
+    type_name = _get_fully_qualified_type_name(value)
+    str_val = _escape_control_codes(str(value))
+    repr_val = _escape_control_codes(repr(value))
+    from ..core import HAS_RICH
+    from ..utils import parse_boolean_env_var
+
+    use_rich = HAS_RICH and parse_boolean_env_var(
+        os.getenv("TYPER_USE_RICH"), default=True
+    )
+    if use_rich:
+        try:
+            from .. import rich_utils
+
+            return rich_utils.format_developer_value(type_name, str_val, repr_val)
+        except Exception:  # pragma: no cover
+            pass
+    return f"Value\n   type: {type_name}\n   value: {str_val}\n   repr: {repr_val}"
+
+
 def echo(
     message: Any | None = None,
     file: IO[Any] | None = None,
@@ -221,6 +294,23 @@ def echo(
         # pythonw on Windows.
         if file is None:
             return
+
+    if is_developer_mode_active():
+        out_str = _format_developer_output(message)
+        if nl:
+            out_str += "\n"
+        try:
+            file.write(out_str)
+        except TypeError:
+            binary_file = _find_binary_writer(file)
+            if binary_file is not None:
+                file.flush()
+                binary_file.write(out_str.encode("utf-8"))
+                binary_file.flush()
+                return
+            cast(Any, file).write(out_str.encode("utf-8"))
+        file.flush()
+        return
 
     # Convert non bytes/text into the native string type.
     if message is not None and not isinstance(message, (str, bytes, bytearray)):

@@ -116,6 +116,29 @@ def get_install_completion_arguments() -> tuple[_click.Parameter, _click.Paramet
     return click_install_param, click_show_param
 
 
+def _developer_callback(
+    ctx: _click.Context, param: _click.Parameter, value: Any
+) -> Any:
+    if not value or ctx.resilient_parsing:
+        return value
+    root_ctx = ctx.find_root()
+    root_ctx._developer_mode_active = True
+    root_ctx.meta["typer.developer_mode"] = True
+    return value
+
+
+def get_developer_option() -> TyperOption:
+    return TyperOption(
+        param_decls=["--developer"],
+        is_flag=True,
+        default=False,
+        expose_value=False,
+        is_eager=True,
+        callback=_developer_callback,
+        help="Enable developer mode to reveal raw data from responses.",
+    )
+
+
 class Typer:
     """
     `Typer` main class, the main entrypoint to use Typer.
@@ -516,6 +539,22 @@ class Typer:
                 """
             ),
         ] = True,
+        developer_mode: Annotated[
+            bool,
+            Doc(
+                """
+                Enable developer mode to reveal raw data from responses digested by Typer.
+                """
+            ),
+        ] = Default(False),
+        developer: Annotated[
+            bool,
+            Doc(
+                """
+                Alias for `developer_mode`.
+                """
+            ),
+        ] = Default(False),
     ):
         self._add_completion = add_completion
         self.rich_markup_mode: MarkupMode = rich_markup_mode
@@ -524,6 +563,12 @@ class Typer:
         self.pretty_exceptions_enable = pretty_exceptions_enable
         self.pretty_exceptions_show_locals = pretty_exceptions_show_locals
         self.pretty_exceptions_short = pretty_exceptions_short
+        dev_val = False
+        if not isinstance(developer_mode, DefaultPlaceholder):
+            dev_val = bool(developer_mode)
+        elif not isinstance(developer, DefaultPlaceholder):
+            dev_val = bool(developer)
+        self._developer_mode = dev_val
         self.info = TyperInfo(
             name=name,
             cls=cls,
@@ -541,10 +586,43 @@ class Typer:
             add_help_option=add_help_option,
             hidden=hidden,
             deprecated=deprecated,
+            developer_mode=dev_val,
+            developer=dev_val,
         )
         self.registered_groups: list[TyperInfo] = []
         self.registered_commands: list[CommandInfo] = []
         self.registered_callback: TyperInfo | None = None
+
+    @property
+    def developer_mode(self) -> bool:
+        return self._developer_mode
+
+    @developer_mode.setter
+    def developer_mode(self, value: bool) -> None:
+        self._developer_mode = bool(value)
+        if hasattr(self, "info"):
+            self.info.developer_mode = bool(value)
+            self.info.developer = bool(value)
+        if self._developer_mode:
+            self._propagate_developer_mode(True)
+
+    @property
+    def developer(self) -> bool:
+        return self._developer_mode
+
+    @developer.setter
+    def developer(self, value: bool) -> None:
+        self.developer_mode = value
+
+    def _propagate_developer_mode(self, enabled: bool) -> None:
+        if enabled:
+            self._developer_mode = True
+            if hasattr(self, "info"):
+                self.info.developer_mode = True
+                self.info.developer = True
+        for group_info in getattr(self, "registered_groups", []):
+            if group_info.typer_instance is not None and enabled:
+                group_info.typer_instance._propagate_developer_mode(True)
 
     def callback(
         self,
@@ -697,6 +775,22 @@ class Typer:
                 """
             ),
         ] = Default(None),
+        developer_mode: Annotated[
+            bool,
+            Doc(
+                """
+                Enable developer mode.
+                """
+            ),
+        ] = Default(False),
+        developer: Annotated[
+            bool,
+            Doc(
+                """
+                Alias for `developer_mode`.
+                """
+            ),
+        ] = Default(False),
     ) -> Callable[[CommandFunctionType], CommandFunctionType]:
         """
         Using the decorator `@app.callback`, you can declare the CLI parameters for the main CLI application.
@@ -745,7 +839,13 @@ class Typer:
                 hidden=hidden,
                 deprecated=deprecated,
                 rich_help_panel=rich_help_panel,
+                developer_mode=developer_mode,
+                developer=developer,
             )
+            if not isinstance(developer_mode, DefaultPlaceholder) and developer_mode:
+                self.developer_mode = True
+            elif not isinstance(developer, DefaultPlaceholder) and developer:
+                self.developer_mode = True
             return f
 
         return decorator
@@ -861,6 +961,22 @@ class Typer:
                 """
             ),
         ] = Default(None),
+        developer_mode: Annotated[
+            bool,
+            Doc(
+                """
+                Enable developer mode.
+                """
+            ),
+        ] = False,
+        developer: Annotated[
+            bool,
+            Doc(
+                """
+                Alias for `developer_mode`.
+                """
+            ),
+        ] = False,
     ) -> Callable[[CommandFunctionType], CommandFunctionType]:
         """
         Using the decorator `@app.command`, you can define a subcommand of the previously defined Typer app.
@@ -906,6 +1022,8 @@ class Typer:
                     deprecated=deprecated,
                     # Rich settings
                     rich_help_panel=rich_help_panel,
+                    developer_mode=developer_mode or developer or self.developer_mode,
+                    developer=developer or developer_mode or self.developer_mode,
                 )
             )
             return f
@@ -1083,6 +1201,22 @@ class Typer:
                 """
             ),
         ] = Default(None),
+        developer_mode: Annotated[
+            bool,
+            Doc(
+                """
+                Enable developer mode.
+                """
+            ),
+        ] = Default(False),
+        developer: Annotated[
+            bool,
+            Doc(
+                """
+                Alias for `developer_mode`.
+                """
+            ),
+        ] = Default(False),
     ) -> None:
         """
         Add subcommands to the main app using `app.add_typer()`.
@@ -1105,6 +1239,13 @@ class Typer:
         app.add_typer(delete_app)
         ```
         """
+        use_dev = self.developer_mode
+        if not isinstance(developer_mode, DefaultPlaceholder):
+            use_dev = use_dev or bool(developer_mode)
+        if not isinstance(developer, DefaultPlaceholder):
+            use_dev = use_dev or bool(developer)
+        if use_dev:
+            typer_instance._propagate_developer_mode(True)
         self.registered_groups.append(
             TyperInfo(
                 typer_instance,
@@ -1127,6 +1268,8 @@ class Typer:
                 hidden=hidden,
                 deprecated=deprecated,
                 rich_help_panel=rich_help_panel,
+                developer_mode=developer_mode,
+                developer=developer,
             )
         )
 
@@ -1166,6 +1309,7 @@ def get_group(typer_instance: Typer) -> TyperGroup:
         pretty_exceptions_short=typer_instance.pretty_exceptions_short,
         rich_markup_mode=typer_instance.rich_markup_mode,
         suggest_commands=typer_instance.suggest_commands,
+        developer_mode=typer_instance.developer_mode,
     )
     return group
 
@@ -1184,6 +1328,10 @@ def get_command(typer_instance: Typer) -> _click.Command:
         if typer_instance._add_completion:
             click_command.params.append(click_install_param)
             click_command.params.append(click_show_param)
+        if typer_instance.developer_mode:
+            existing_opts = {opt for p in click_command.params for opt in p.opts}
+            if "--developer" not in existing_opts:
+                click_command.params.append(get_developer_option())
         return click_command
     elif len(typer_instance.registered_commands) == 1:
         # Create a single Command
@@ -1198,10 +1346,15 @@ def get_command(typer_instance: Typer) -> _click.Command:
             single_command,
             pretty_exceptions_short=typer_instance.pretty_exceptions_short,
             rich_markup_mode=typer_instance.rich_markup_mode,
+            developer_mode=typer_instance.developer_mode,
         )
         if typer_instance._add_completion:
             click_command.params.append(click_install_param)
             click_command.params.append(click_show_param)
+        if typer_instance.developer_mode:
+            existing_opts = {opt for p in click_command.params for opt in p.opts}
+            if "--developer" not in existing_opts:
+                click_command.params.append(get_developer_option())
         return click_command
     raise RuntimeError(
         "Could not get a command for this Typer instance"
@@ -1286,16 +1439,25 @@ def get_group_from_info(
     pretty_exceptions_short: bool,
     suggest_commands: bool,
     rich_markup_mode: MarkupMode,
+    developer_mode: bool = False,
 ) -> TyperGroup:
     assert group_info.typer_instance, (
         "A Typer instance is needed to generate a Click Group"
     )
+    use_developer_mode = developer_mode or group_info.typer_instance.developer_mode
+    if not isinstance(group_info.developer_mode, DefaultPlaceholder):
+        use_developer_mode = use_developer_mode or bool(group_info.developer_mode)
+    if not isinstance(group_info.developer, DefaultPlaceholder):
+        use_developer_mode = use_developer_mode or bool(group_info.developer)
+    if use_developer_mode:
+        group_info.typer_instance._propagate_developer_mode(True)
     commands: dict[str, _click.Command] = {}
     for command_info in group_info.typer_instance.registered_commands:
         command = get_command_from_info(
             command_info=command_info,
             pretty_exceptions_short=pretty_exceptions_short,
             rich_markup_mode=rich_markup_mode,
+            developer_mode=use_developer_mode,
         )
         if command.name:
             commands[command.name] = command
@@ -1305,6 +1467,7 @@ def get_group_from_info(
             pretty_exceptions_short=pretty_exceptions_short,
             rich_markup_mode=rich_markup_mode,
             suggest_commands=suggest_commands,
+            developer_mode=use_developer_mode,
         )
         if sub_group.name:
             commands[sub_group.name] = sub_group
@@ -1353,6 +1516,7 @@ def get_group_from_info(
         # Rich settings
         rich_help_panel=solved_info.rich_help_panel,
         suggest_commands=suggest_commands,
+        developer_mode=use_developer_mode,
     )
     return group
 
@@ -1394,6 +1558,7 @@ def get_command_from_info(
     *,
     pretty_exceptions_short: bool,
     rich_markup_mode: MarkupMode,
+    developer_mode: bool = False,
 ) -> _click.Command:
     assert command_info.callback, "A command must have a callback function"
     name = command_info.name or get_command_name(command_info.callback.__name__)  # ty: ignore
@@ -1430,6 +1595,7 @@ def get_command_from_info(
         rich_markup_mode=rich_markup_mode,
         # Rich settings
         rich_help_panel=command_info.rich_help_panel,
+        developer_mode=developer_mode or command_info.developer_mode,
     )
     return command
 

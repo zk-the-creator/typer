@@ -34,8 +34,9 @@ def install_callback(ctx: _click.Context, param: _click.Parameter, value: Any) -
         shell, path = install(shell=value)
     else:
         shell, path = install()
-    _click.termui.secho(f"{shell} completion installed in {path}", fg="green")
-    _click.echo("Completion will take effect once you restart the terminal")
+    with _click.utils._suppress_developer_mode():
+        _click.termui.secho(f"{shell} completion installed in {path}", fg="green")
+        _click.echo("Completion will take effect once you restart the terminal")
     sys.exit(0)
 
 
@@ -56,7 +57,8 @@ def show_callback(ctx: _click.Context, param: _click.Parameter, value: Any) -> A
     script_content = get_completion_script(
         prog_name=prog_name, complete_var=complete_var, shell=shell
     )
-    _click.echo(script_content)
+    with _click.utils._suppress_developer_mode():
+        _click.echo(script_content)
     sys.exit(0)
 
 

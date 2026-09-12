@@ -92,11 +92,13 @@ def prompt(
     """
 
     def prompt_func(text: str) -> str:
+        from .utils import _suppress_developer_mode
         f = hidden_prompt_func if hide_input else visible_prompt_func
         try:
             # Write the prompt separately so that we get nice
             # coloring through colorama on Windows
-            echo(text[:-1], nl=False, err=err)
+            with _suppress_developer_mode():
+                echo(text[:-1], nl=False, err=err)
             # Echo the last character to stdout to work around an issue where
             # readline causes backspace to clear the whole line.
             return f(text[-1:])
@@ -173,7 +175,9 @@ def confirm(
         try:
             # Write the prompt separately so that we get nice
             # coloring through colorama on Windows
-            echo(prompt[:-1], nl=False, err=err)
+            from .utils import _suppress_developer_mode
+            with _suppress_developer_mode():
+                echo(prompt[:-1], nl=False, err=err)
             # Echo the last character to stdout to work around an issue where
             # readline causes backspace to clear the whole line.
             value = visible_prompt_func(prompt[-1:]).lower().strip()
@@ -377,7 +381,13 @@ def secho(
     **styles: Any,
 ) -> None:
     """This function combines `echo` and `style` into one call."""
-    if message is not None and not isinstance(message, (bytes, bytearray)):
+    from .utils import is_developer_mode_active
+
+    if (
+        not is_developer_mode_active()
+        and message is not None
+        and not isinstance(message, (bytes, bytearray))
+    ):
         message = style(message, **styles)
 
     return echo(message, file=file, nl=nl, err=err, color=color)

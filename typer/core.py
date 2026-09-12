@@ -196,7 +196,8 @@ def _main(
                 # by its truthiness/falsiness
                 ctx.exit()
         except EOFError as e:
-            _click.echo(file=sys.stderr)
+            with _click.utils._suppress_developer_mode():
+                _click.echo(file=sys.stderr)
             raise Abort() from e
         except KeyboardInterrupt as e:
             raise Exit(130) from e
@@ -238,7 +239,8 @@ def _main(
 
             rich_utils.rich_abort_error()
         else:
-            _click.echo(_("Aborted!"), file=sys.stderr)
+            with _click.utils._suppress_developer_mode():
+                _click.echo(_("Aborted!"), file=sys.stderr)
         sys.exit(1)
 
 
@@ -919,6 +921,7 @@ class TyperCommand(_click.core.Command):
         # Rich settings
         rich_markup_mode: MarkupMode = DEFAULT_MARKUP_MODE,
         rich_help_panel: str | None = None,
+        developer_mode: bool = False,
     ) -> None:
         super().__init__(
             name=name,
@@ -936,6 +939,8 @@ class TyperCommand(_click.core.Command):
         )
         self.rich_markup_mode: MarkupMode = rich_markup_mode
         self.rich_help_panel = rich_help_panel
+        self.developer_mode = developer_mode
+        self.developer = developer_mode
 
     def format_options(
         self, ctx: _click.Context, formatter: _click.HelpFormatter
@@ -1003,6 +1008,7 @@ class TyperGroup(_click.Command):
         rich_markup_mode: MarkupMode = DEFAULT_MARKUP_MODE,
         rich_help_panel: str | None = None,
         suggest_commands: bool = True,
+        developer_mode: bool = False,
         # Click settings
         invoke_without_command: bool = False,
         no_args_is_help: bool = False,
@@ -1014,6 +1020,8 @@ class TyperGroup(_click.Command):
         self.rich_markup_mode: MarkupMode = rich_markup_mode
         self.rich_help_panel = rich_help_panel
         self.suggest_commands = suggest_commands
+        self.developer_mode = developer_mode
+        self.developer = developer_mode
 
         # copied from Click's init
         if commands is None:

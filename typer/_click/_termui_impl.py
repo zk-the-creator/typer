@@ -234,7 +234,9 @@ class ProgressBar(Generic[V]):
             # Only output the label once if the output is not a TTY.
             if self._last_line != self.label:
                 self._last_line = self.label
-                echo(self.label, file=self.file, color=self.color)
+                from .utils import _suppress_developer_mode
+                with _suppress_developer_mode():
+                    echo(self.label, file=self.file, color=self.color)
             return
 
         buf = []
@@ -269,7 +271,9 @@ class ProgressBar(Generic[V]):
 
         if line != self._last_line:
             self._last_line = line
-            echo(line, file=self.file, color=self.color, nl=False)
+            from .utils import _suppress_developer_mode
+            with _suppress_developer_mode():
+                echo(line, file=self.file, color=self.color, nl=False)
             self.file.flush()
 
     def make_step(self, n_steps: int) -> None:

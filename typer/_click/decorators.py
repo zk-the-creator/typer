@@ -44,7 +44,9 @@ def help_option(param_decls: list[str]) -> Callable[[Command], Command]:
     def show_help(ctx: Context, param: Parameter, value: bool) -> None:
         """Callback that print the help page on ``<stdout>`` and exits."""
         if value and not ctx.resilient_parsing:
-            echo(ctx.get_help(), color=ctx.color)
+            from .utils import _suppress_developer_mode
+            with _suppress_developer_mode():
+                echo(ctx.get_help(), color=ctx.color)
             ctx.exit()
 
     assert len(param_decls) > 0, "At least one help option should be provided"

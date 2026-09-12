@@ -129,6 +129,7 @@ class Context:
     """
 
     formatter_class: type[HelpFormatter] = HelpFormatter
+    _developer_mode_active: bool = False
 
     def __init__(
         self,

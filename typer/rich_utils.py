@@ -774,3 +774,19 @@ def get_traceback(
         word_wrap=True,
     )
     return rich_tb
+
+
+def format_developer_value(
+    type_name: str,
+    str_val: str,
+    repr_val: str,
+) -> str:
+    text = Text()
+    text.append("Value\n")
+    text.append("   type: ")
+    text.append(type_name)
+    text.append("\n   value: ")
+    text.append(str_val)
+    text.append("\n   repr: ")
+    text.append(repr_val)
+    return text.plain
