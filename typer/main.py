@@ -21,6 +21,11 @@ from typer._types import TyperChoice
 from . import _click
 from ._click import types
 from ._click.globals import get_current_context
+from ._developer import (
+    developer_callback,
+    is_developer_mode_active,
+    render_developer_output,
+)
 from ._typing import get_args, get_origin, is_literal_type, is_union, literal_values
 from .completion import get_completion_inspect_parameters
 from .core import (
@@ -114,6 +119,26 @@ def get_install_completion_arguments() -> tuple[_click.Parameter, _click.Paramet
     click_install_param, _ = get_click_param(install_param)
     click_show_param, _ = get_click_param(show_param)
     return click_install_param, click_show_param
+
+
+def get_developer_argument() -> _click.Parameter:
+    from .params import Option
+
+    developer_param_info = Option(
+        None,
+        "--developer",
+        is_eager=True,
+        callback=developer_callback,
+        expose_value=False,
+        help="Enable developer mode to reveal the raw data digested by Typer.",
+    )
+    param_meta = ParamMeta(
+        name="developer",
+        default=developer_param_info,
+        annotation=bool,
+    )
+    click_developer_param, _ = get_click_param(param_meta)
+    return click_developer_param
 
 
 class Typer:
@@ -408,6 +433,31 @@ class Typer:
                 """
             ),
         ] = True,
+        developer: Annotated[
+            bool,
+            Doc(
+                """
+                Enable developer mode. Disabled by default.
+
+                When enabled, Typer exposes a framework-managed `--developer`
+                root-level flag. When that flag is used at runtime, instead of
+                running the command Typer reveals the raw data (Python type,
+                `str`, and `repr`) of the values it digested for the invoked
+                command. This is helpful for debugging type conversions.
+
+                Developer mode is inherited by nested commands: enabling it on
+                the root application shares it throughout the whole command tree.
+
+                **Example**
+
+                ```python
+                import typer
+
+                app = typer.Typer(developer=True)
+                ```
+                """
+            ),
+        ] = False,
         # Rich settings
         rich_markup_mode: Annotated[
             MarkupMode,
@@ -518,6 +568,7 @@ class Typer:
         ] = True,
     ):
         self._add_completion = add_completion
+        self._developer = developer
         self.rich_markup_mode: MarkupMode = rich_markup_mode
         self.rich_help_panel = rich_help_panel
         self.suggest_commands = suggest_commands
@@ -1173,6 +1224,8 @@ def get_group(typer_instance: Typer) -> TyperGroup:
 def get_command(typer_instance: Typer) -> _click.Command:
     if typer_instance._add_completion:
         click_install_param, click_show_param = get_install_completion_arguments()
+    if typer_instance._developer:
+        click_developer_param = get_developer_argument()
     if (
         typer_instance.registered_callback
         or typer_instance.info.callback
@@ -1184,6 +1237,8 @@ def get_command(typer_instance: Typer) -> _click.Command:
         if typer_instance._add_completion:
             click_command.params.append(click_install_param)
             click_command.params.append(click_show_param)
+        if typer_instance._developer:
+            click_command.params.append(click_developer_param)
         return click_command
     elif len(typer_instance.registered_commands) == 1:
         # Create a single Command
@@ -1202,6 +1257,8 @@ def get_command(typer_instance: Typer) -> _click.Command:
         if typer_instance._add_completion:
             click_command.params.append(click_install_param)
             click_command.params.append(click_show_param)
+        if typer_instance._developer:
+            click_command.params.append(click_developer_param)
         return click_command
     raise RuntimeError(
         "Could not get a command for this Typer instance"
@@ -1519,6 +1576,15 @@ def get_callback(
                 use_params[k] = use_convertors[k](v)
             else:
                 use_params[k] = v
+        if is_developer_mode_active():
+            # Developer mode: reveal the raw data digested by Typer for this
+            # command instead of running the user callback. This applies only
+            # to the current run and never mutates the user callback params.
+            report_params = {
+                k: v for k, v in use_params.items() if k != context_param_name
+            }
+            render_developer_output(report_params)
+            return None
         if context_param_name:
             use_params[context_param_name] = get_current_context()
         return callback(**use_params)
