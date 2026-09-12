@@ -94,11 +94,11 @@ def test_echo_without_context_delegates_to_click(
 ) -> None:
     value = object()
     stream = StringIO()
-    calls: list[tuple[object, object, bool, bool, bool | None]] = []
+    calls: list[tuple[Any, Any, bool, bool, bool | None]] = []
 
     def fake_echo(
-        message: object = None,
-        file: object = None,
+        message: Any = None,
+        file: Any = None,
         nl: bool = True,
         err: bool = False,
         color: bool | None = None,
