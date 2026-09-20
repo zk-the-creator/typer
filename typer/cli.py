@@ -52,6 +52,22 @@ def maybe_update_state(ctx: _click.Context) -> None:
 
 
 class TyperCLIGroup(typer.core.TyperGroup):
+    def parse_args(self, ctx: _click.Context, args: list[str]) -> list[str]:
+        args = list(args)
+        menu_requested = False
+        if "--menu" in args:
+            menu_index = args.index("--menu")
+            subcommand_indexes = [
+                args.index(name) for name in ("run", "utils") if name in args
+            ]
+            if not subcommand_indexes or menu_index < min(subcommand_indexes):
+                args.pop(menu_index)
+                menu_requested = True
+        remaining = super().parse_args(ctx, args)
+        if menu_requested:
+            ctx.params["menu"] = True
+        return remaining
+
     def list_commands(self, ctx: _click.Context) -> list[str]:
         self.maybe_add_run(ctx)
         return super().list_commands(ctx)
@@ -61,6 +77,17 @@ class TyperCLIGroup(typer.core.TyperGroup):
         return super().get_command(ctx, name)
 
     def invoke(self, ctx: _click.Context) -> Any:
+        maybe_update_state(ctx)
+        if ctx.params.get("menu"):
+            from ._inspection import run_menu
+
+            typer_obj = get_typer_from_state()
+            if not typer_obj:
+                typer.echo("No Typer app found", err=True)
+                raise typer.Abort()
+            typer_obj._add_completion = False
+            run_menu(typer.main.get_command(typer_obj))
+            return None
         self.maybe_add_run(ctx)
         return super().invoke(ctx)
 
@@ -169,6 +196,11 @@ def callback(
         "--version",
         help="Print version and exit.",
         callback=print_version,
+    ),
+    menu: bool = typer.Option(
+        False,
+        "--menu",
+        help="Explore and inspect the discovered Typer app.",
     ),
 ) -> None:
     """

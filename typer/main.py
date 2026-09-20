@@ -1524,6 +1524,7 @@ def get_callback(
         return callback(**use_params)
 
     update_wrapper(wrapper, callback)
+    wrapper.__dict__["__typer_convertors__"] = use_convertors
     return wrapper
 
 
