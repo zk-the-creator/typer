@@ -86,7 +86,7 @@ class TyperCLIGroup(typer.core.TyperGroup):
                 typer.echo("No Typer app found", err=True)
                 raise typer.Abort()
             typer_obj._add_completion = False
-            run_menu(typer.main.get_command(typer_obj))
+            run_menu(typer.main.get_command(typer_obj), source_path=state.file)
             return None
         self.maybe_add_run(ctx)
         return super().invoke(ctx)

@@ -1,228 +1,182 @@
 from __future__ import annotations
 
+import json
 import shlex
-from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
 
 from . import _click
-from ._click.core import ParameterSource
 from ._click.termui import prompt
-from .core import TyperGroup
 from .exceptions import Abort
+from .inspection import (
+    ApplicationContract,
+    InspectionFailure,
+    InspectionResult,
+    get_application_contract,
+    inspect_invocation,
+)
 
 
-@dataclass
-class InspectedParameter:
-    name: str
-    raw_value: Any
-    value: Any
-    source: ParameterSource | None
+def _display_value(value: object) -> str:
+    return repr(value)
 
 
-@dataclass
-class InspectedInvocation:
-    command_path: str
-    parameters: list[InspectedParameter]
-
-
-_missing = object()
-
-
-def _make_bare_context(
-    command: _click.Command,
-    *,
-    info_name: str,
-    parent: _click.Context | None = None,
-) -> _click.Context:
-    return command.context_class(command, info_name=info_name, parent=parent)
-
-
-def _command_paths(command: _click.Command) -> list[str]:
-    if not isinstance(command, TyperGroup):
-        return [command.name or "<command>"]
-
-    paths: list[str] = []
-
-    def visit(
-        current: TyperGroup,
-        prefix: tuple[str, ...],
-        parent: _click.Context | None,
-    ) -> None:
-        info_name = prefix[-1] if prefix else current.name or "app"
-        ctx = _make_bare_context(current, info_name=info_name, parent=parent)
-        try:
-            for command_name in current.list_commands(ctx):
-                child = current.get_command(ctx, command_name)
-                if child is None or child.hidden:
-                    continue
-                path = (*prefix, command_name)
-                paths.append(" ".join(path))
-                if isinstance(child, TyperGroup):
-                    visit(child, path, ctx)
-        finally:
-            ctx.close()
-
-    visit(command, (), None)
-    return paths
-
-
-def _raw_parameter_values(
-    command: _click.Command,
-    args: list[str],
-    *,
-    info_name: str,
-    parent: _click.Context | None,
-) -> dict[str, Any]:
-    ctx = _make_bare_context(command, info_name=info_name, parent=parent)
-    try:
-        values, _, _ = command.make_parser(ctx).parse_args(args=list(args))
-        return values
-    finally:
-        ctx.close()
-
-
-def _parameters_from_context(
-    command: _click.Command,
-    ctx: _click.Context,
-    raw_values: dict[str, Any],
-) -> list[InspectedParameter]:
-    parameters: list[InspectedParameter] = []
-    convertors = getattr(command.callback, "__typer_convertors__", {})
-    for parameter in command.get_params(ctx):
-        if parameter.name is None or parameter.name not in ctx.params:
-            continue
-        source = ctx.get_parameter_source(parameter.name)
-        raw_value = raw_values.get(parameter.name, _missing)
-        if source is not ParameterSource.COMMANDLINE:
-            raw_value = _missing
-        value = ctx.params[parameter.name]
-        if parameter.name in convertors:
-            value = convertors[parameter.name](value)
-            ctx.params[parameter.name] = value
-        parameters.append(
-            InspectedParameter(
-                name=parameter.name,
-                raw_value=raw_value,
-                value=value,
-                source=source,
-            )
-        )
-    return parameters
-
-
-def inspect_invocation(command: _click.Command, args: list[str]) -> InspectedInvocation:
-    current = command
-    current_args = list(args)
-    parent: _click.Context | None = None
-    contexts: list[_click.Context] = []
-    command_path: list[str] = []
-    parameters: list[InspectedParameter] = []
-
-    try:
-        while True:
-            info_name = command_path[-1] if command_path else current.name or "app"
-            raw_values = _raw_parameter_values(
-                current,
-                current_args,
-                info_name=info_name,
-                parent=parent,
-            )
-            ctx = current.make_context(info_name, current_args, parent=parent)
-            contexts.append(ctx)
-            parameters.extend(_parameters_from_context(current, ctx, raw_values))
-
-            if not isinstance(current, TyperGroup):
-                if not command_path:
-                    command_path.append(current.name or "<command>")
-                break
-
-            remaining_args = [*ctx._protected_args, *ctx.args]
-            if not remaining_args:
-                if current.invoke_without_command:
-                    if not command_path:
-                        command_path.append(current.name or "<command>")
-                    break
-                ctx.fail("Missing command.")
-
-            command_name, next_command, next_args = current.resolve_command(
-                ctx, remaining_args
-            )
-            if next_command is None:  # pragma: no cover - resolve_command raises
-                ctx.fail(f"No such command {command_name!r}.")
-            assert command_name is not None
-            command_path.append(command_name)
-            parent = ctx
-            current = next_command
-            current_args = next_args
-
-        return InspectedInvocation(
-            command_path=" ".join(command_path), parameters=parameters
-        )
-    finally:
-        for ctx in reversed(contexts):
-            ctx.close()
-
-
-def _type_name(value: Any) -> str:
-    value_type = type(value)
-    if value_type.__module__ == "builtins":
-        return value_type.__qualname__
-    return f"{value_type.__module__}.{value_type.__qualname__}"
-
-
-def _source_name(source: ParameterSource | None) -> str:
-    if source is None:
-        return "unknown"
-    return source.name.lower().replace("_", " ")
-
-
-def _show_commands(command: _click.Command) -> None:
-    paths = _command_paths(command)
+def _show_commands(contract: ApplicationContract) -> None:
     _click.echo("\nCommands:")
-    if not paths:
+    commands = [command for command in contract.commands if command.path]
+    if not commands:
         _click.echo("  (none)")
-    for path in paths:
-        _click.echo(f"  {path}")
+    for command in commands:
+        annotations = []
+        if command.hidden:
+            annotations.append("hidden")
+        if command.deprecated:
+            annotations.append("deprecated")
+        suffix = f" ({', '.join(annotations)})" if annotations else ""
+        _click.echo(f"  {command.path}{suffix}")
     _click.echo()
 
 
-def _show_inspection(command: _click.Command, invocation: str) -> None:
+def _show_contract(contract: ApplicationContract) -> None:
+    _click.echo("\nApplication contract:")
+    for command in contract.commands:
+        path = command.path or "<root>"
+        labels = ["group" if command.is_group else "command"]
+        if command.hidden:
+            labels.append("hidden")
+        if command.deprecated:
+            labels.append("deprecated")
+        _click.echo(f"\n  {path} [{', '.join(labels)}]")
+        if command.parent_path is not None:
+            _click.echo(f"    Parent: {command.parent_path or '<root>'}")
+        if command.help:
+            _click.echo(f"    Help: {command.help}")
+        _click.echo("    Parameters:")
+        if not command.parameters:
+            _click.echo("      (none)")
+        for parameter in command.parameters:
+            _click.echo(f"      {parameter.name} ({parameter.kind})")
+            _click.echo(f"        Python type: {parameter.python_type}")
+            _click.echo(f"        Required: {parameter.required}")
+            _click.echo(f"        Default: {_display_value(parameter.default)}")
+            if parameter.option_names:
+                _click.echo(f"        Options: {', '.join(parameter.option_names)}")
+            if parameter.secondary_option_names:
+                _click.echo(
+                    "        Boolean pair: "
+                    + ", ".join(parameter.secondary_option_names)
+                )
+            if parameter.envvar:
+                envvars = (
+                    ", ".join(parameter.envvar)
+                    if isinstance(parameter.envvar, tuple)
+                    else parameter.envvar
+                )
+                _click.echo(f"        Environment: {envvars}")
+            if parameter.multiple or parameter.nargs != 1 or parameter.count:
+                _click.echo(
+                    "        Arity: "
+                    f"multiple={parameter.multiple}, nargs={parameter.nargs}, "
+                    f"count={parameter.count}"
+                )
+            if parameter.constraints:
+                _click.echo(f"        Constraints: {dict(parameter.constraints)!r}")
+            if parameter.sensitive:
+                _click.echo("        Sensitive: True (values redacted)")
+    _click.echo()
+
+
+def _show_inspection(result: InspectionResult) -> None:
+    status = "successful" if result.success else "failed"
+    _click.echo(f"\nInspection: {status}")
+    _click.echo(f"Resolved command: {result.command_path or '(unresolved)'}")
+    _click.echo("Parameters:")
+    if not result.parameters:
+        _click.echo("  (none)")
+    for parameter in result.parameters:
+        _click.echo(f"  {parameter.name}")
+        _click.echo(f"    Command: {parameter.command_path}")
+        _click.echo(f"    Raw value: {_display_value(parameter.raw_value)}")
+        _click.echo(f"    Resolved value: {_display_value(parameter.value)}")
+        _click.echo(f"    Type: {parameter.python_type or '(unresolved)'}")
+        source = (
+            parameter.source.name.lower().replace("_", " ")
+            if parameter.source is not None
+            else "unknown"
+        )
+        _click.echo(f"    Source: {source}")
+    if result.failure:
+        _show_failure(result.failure)
+    _click.echo()
+
+
+def _show_failure(failure: InspectionFailure) -> None:
+    _click.echo(f"Inspection error: {failure.message}", err=True)
+    _click.echo(f"  Stage: {failure.stage}", err=True)
+    if failure.parameter:
+        _click.echo(f"  Parameter: {failure.parameter}", err=True)
+        _click.echo(f"  Raw value: {_display_value(failure.raw_value)}", err=True)
+    if failure.expected_type:
+        _click.echo(f"  Expected type: {failure.expected_type}", err=True)
+
+
+def _inspect_text(command: _click.Command, invocation: str) -> InspectionResult:
     try:
         args = shlex.split(invocation)
     except ValueError as exc:
-        _click.echo(f"Invalid invocation: {exc}", err=True)
-        return
-
-    try:
-        inspected = inspect_invocation(command, args)
-    except _click.ClickException as exc:
-        _click.echo(f"Inspection error: {exc.format_message()}", err=True)
-        return
-
-    _click.echo(f"\nResolved command: {inspected.command_path}")
-    _click.echo("Parameters:")
-    if not inspected.parameters:
-        _click.echo("  (none)")
-    for parameter in inspected.parameters:
-        _click.echo(f"  {parameter.name}")
-        raw = (
-            "(not provided)"
-            if parameter.raw_value is _missing
-            else repr(parameter.raw_value)
+        return InspectionResult(
+            command_path="",
+            parameters=(),
+            success=False,
+            failure=InspectionFailure(
+                stage="tokenization", message=str(exc), command_path=""
+            ),
         )
-        _click.echo(f"    Raw value: {raw}")
-        _click.echo(f"    Resolved value: {parameter.value!r}")
-        _click.echo(f"    Type: {_type_name(parameter.value)}")
-        _click.echo(f"    Source: {_source_name(parameter.source)}")
-    _click.echo()
+    return inspect_invocation(command, args)
 
 
-def run_menu(command: _click.Command) -> None:
+def _export_json(
+    data: ApplicationContract | InspectionResult,
+    output_path: Path,
+    *,
+    source_path: Path | None,
+) -> bool:
+    try:
+        resolved_output = output_path.expanduser().resolve()
+        if source_path is not None and resolved_output == source_path.resolve():
+            raise ValueError(
+                "The discovered application's source file cannot be replaced."
+            )
+        payload = json.dumps(
+            data.to_dict(), indent=2, ensure_ascii=False, allow_nan=False
+        )
+        resolved_output.write_text(f"{payload}\n", encoding="utf-8")
+    except (OSError, TypeError, ValueError) as exc:
+        _click.echo(f"Export error: {exc}", err=True)
+        return False
+    _click.echo(f"Exported JSON to {resolved_output}")
+    return True
+
+
+def _prompt_path(label: str, default: str) -> Path | None:
+    try:
+        value = prompt(label, default=default, type=str).strip()
+    except (EOFError, Abort):
+        _click.echo("\nExport cancelled.")
+        return None
+    return Path(value)
+
+
+def run_menu(command: _click.Command, *, source_path: Path | None = None) -> None:
+    contract = get_application_contract(command)
+    latest_inspection: InspectionResult | None = None
     _click.echo("Typer Application Menu")
     while True:
         _click.echo("1. Explore commands")
         _click.echo("2. Inspect invocation")
-        _click.echo("3. Exit")
+        _click.echo("3. View application contract")
+        _click.echo("4. Export application contract as JSON")
+        _click.echo("5. Export latest inspection as JSON")
+        _click.echo("6. Exit")
         try:
             choice = prompt("Select an option", type=str).strip().lower()
         except (EOFError, Abort):
@@ -230,16 +184,30 @@ def run_menu(command: _click.Command) -> None:
             return
 
         if choice in {"1", "explore", "commands"}:
-            _show_commands(command)
+            _show_commands(contract)
         elif choice in {"2", "inspect"}:
             try:
-                invocation = prompt("Invocation", type=str)
+                invocation = prompt("Invocation", type=str, hide_input=True)
             except (EOFError, Abort):
                 _click.echo("\nLeaving menu.")
                 return
-            _show_inspection(command, invocation)
-        elif choice in {"3", "exit", "quit", "q"}:
+            latest_inspection = _inspect_text(command, invocation)
+            _show_inspection(latest_inspection)
+        elif choice in {"3", "contract", "view"}:
+            _show_contract(contract)
+        elif choice in {"4", "export contract"}:
+            output = _prompt_path("JSON path", "typer-contract.json")
+            if output is not None:
+                _export_json(contract, output, source_path=source_path)
+        elif choice in {"5", "export inspection"}:
+            if latest_inspection is None:
+                _click.echo("Inspect an invocation before exporting its result.")
+                continue
+            output = _prompt_path("JSON path", "typer-inspection.json")
+            if output is not None:
+                _export_json(latest_inspection, output, source_path=source_path)
+        elif choice in {"6", "exit", "quit", "q"}:
             _click.echo("Leaving menu.")
             return
         else:
-            _click.echo("Please choose Explore (1), Inspect (2), or Exit (3).")
+            _click.echo("Please choose an option from 1 through 6.")

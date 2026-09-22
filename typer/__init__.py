@@ -20,6 +20,10 @@ from ._click.utils import get_text_stream as get_text_stream
 from .exceptions import Abort as Abort
 from .exceptions import Exit as Exit
 from .exceptions import TyperException as TyperException
+from .inspection import ApplicationContract as ApplicationContract
+from .inspection import InspectionResult as InspectionResult
+from .inspection import get_application_contract as get_application_contract
+from .inspection import inspect_invocation as inspect_invocation
 from .main import Typer as Typer
 from .main import launch as launch
 from .main import run as run

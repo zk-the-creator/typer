@@ -242,6 +242,32 @@ You can specify one of the following **CLI options**:
 
 * `--app`: the name of the variable with a `Typer()` object to run as the main app.
 * `--func`: the name of the variable with a function that would be used with `typer.run()`.
+* `--menu`: explore the discovered application and inspect invocations without running its registered command, group, or result callbacks.
+
+## Inspect an application
+
+Open the interactive inspection menu by passing `--menu` with the file or module:
+
+```console
+$ typer my_custom_script.py --menu
+```
+
+The menu can list complete command paths, display the application's runtime contract, and parse a proposed invocation with Typer's normal parameter conversion. Inspection reports each parameter's raw input, resolved Python value, type, and value source without invoking the selected command.
+
+Both application contracts and successful or failed inspection results can be exported as JSON. Failed conversions retain the partial information that was available before the error. Password-style and hidden-input parameter values are redacted before rendering and serialization.
+
+The structured API is also available independently of the menu:
+
+```Python
+import typer
+
+from my_custom_script import app
+
+contract = typer.get_application_contract(app)
+inspection = typer.inspect_invocation(app, ["hello", "--name", "Camila"])
+```
+
+Building a contract or inspecting an invocation never runs callbacks registered as application commands, groups, or result callbacks.
 
 ### Defaults
 
