@@ -197,7 +197,8 @@ def test_kitchen_sink_menu_black_box_session(tmp_path: Path) -> None:
     assert "not a valid int" in result.output
     assert "No such command 'missing-command'" in result.output
     assert "Leaving menu." in result.output
-    assert "never-serialize" not in result.output
+    assert success_invocation in result.output
+    assert "Resolved value: [REDACTED]" in result.output
     assert "fixture-secret-default" not in result.output
 
     contract = json.loads(contract_path.read_text())

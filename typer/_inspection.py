@@ -186,8 +186,14 @@ def run_menu(command: _click.Command, *, source_path: Path | None = None) -> Non
         if choice in {"1", "explore", "commands"}:
             _show_commands(contract)
         elif choice in {"2", "inspect"}:
+            _click.echo(
+                "Enter a complete command path followed by its arguments and options."
+            )
+            _click.echo(
+                "For a single-command application, enter only its arguments and options."
+            )
             try:
-                invocation = prompt("Invocation", type=str, hide_input=True)
+                invocation = prompt("Invocation", type=str)
             except (EOFError, Abort):
                 _click.echo("\nLeaving menu.")
                 return

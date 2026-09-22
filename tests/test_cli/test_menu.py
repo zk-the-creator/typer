@@ -193,8 +193,9 @@ def test_successful_inspection_json_preserves_python_types(
     )
 
     assert result.exit_code == 0
+    assert "Enter a complete command path" in result.output
+    assert "process data.json --count 5 --secret revealed" in result.output
     assert "[REDACTED]" in result.output
-    assert "revealed" not in result.output
     exported_text = output_path.read_text()
     exported = json.loads(exported_text)
     assert exported["success"] is True
