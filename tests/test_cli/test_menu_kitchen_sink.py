@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -40,10 +41,11 @@ def _invoke_menu(
     input_text: str,
     *,
     env: dict[str, str] | None = None,
+    app_path: str = kitchen_sink_path,
 ) -> Any:
     return runner.invoke(
         typer_cli_app,
-        [kitchen_sink_path, "--menu"],
+        [app_path, "--menu"],
         input=input_text,
         env=env,
         prog_name="typer",
@@ -67,8 +69,8 @@ def _choice_entries(output: str) -> list[tuple[str, str]]:
     return entries
 
 
-def _menu_choices() -> dict[str, str]:
-    probe = _invoke_menu("")
+def _menu_choices(*, app_path: str = kitchen_sink_path) -> dict[str, str]:
+    probe = _invoke_menu("", app_path=app_path)
     entries = _choice_entries(probe.output)
     choices: dict[str, str] = {}
     for token, label in entries:
@@ -393,6 +395,40 @@ def test_invalid_nested_command_is_useful_and_menu_remains_exitable(
         for word in ("invalid", "unknown", "no such", "not found", "error")
     )
     assert not sentinel.exists()
+
+
+def test_contract_export_cannot_replace_the_discovered_source(
+    tmp_path: Path,
+) -> None:
+    copied_app = tmp_path / "application_under_test.py"
+    shutil.copyfile(kitchen_sink_path, copied_app)
+    original_source = copied_app.read_text(encoding="utf-8")
+    choices = _menu_choices(app_path=str(copied_app))
+
+    result = _invoke_menu(
+        (
+            f"{choices['export_contract']}\n{copied_app}\n"
+            f"{choices['exit']}\n"
+        ),
+        app_path=str(copied_app),
+    )
+
+    assert result.exit_code == 0
+    assert copied_app.read_text(encoding="utf-8") == original_source
+
+
+def test_normal_execution_still_invokes_registered_callbacks() -> None:
+    result = runner.invoke(
+        typer_cli_app,
+        [kitchen_sink_path, "run", "defaults"],
+        env={"TYPER_MENU_ALLOW_CALLBACKS": "1"},
+        prog_name="typer",
+    )
+
+    assert result.exit_code == 0
+    assert "CALLBACK EXECUTED: root group" in result.output
+    assert "CALLBACK EXECUTED: defaults command" in result.output
+    assert "CALLBACK EXECUTED: result" in result.output
 
 
 def test_invalid_application_fixtures_are_separate_and_genuinely_invalid(
