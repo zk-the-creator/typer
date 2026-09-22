@@ -13,6 +13,7 @@ Suggested failures:
 
 Set ``TYPER_MENU_SENTINEL`` to a file path. Any command, group, or result callback
 that runs will create that file and raise, making callback leakage unmistakable.
+Set ``TYPER_MENU_ALLOW_CALLBACKS=1`` only when testing ordinary, non-menu execution.
 """
 
 from __future__ import annotations
@@ -58,6 +59,9 @@ def _forbid_callback(kind: str) -> None:
     sentinel = os.environ.get("TYPER_MENU_SENTINEL")
     if sentinel:
         Path(sentinel).write_text(kind, encoding="utf-8")
+    if os.environ.get("TYPER_MENU_ALLOW_CALLBACKS") == "1":
+        typer.echo(f"CALLBACK EXECUTED: {kind}")
+        return
     raise RuntimeError(f"{kind} callback executed through --menu")
 
 
@@ -75,8 +79,8 @@ def root_callback(
     _forbid_callback(f"root group ({profile})")
 
 
-def result_callback(result: object) -> None:
-    _forbid_callback(f"result ({result!r})")
+def result_callback(result: object, profile: str) -> None:
+    _forbid_callback(f"result ({result!r}, {profile})")
 
 
 app = typer.Typer(
