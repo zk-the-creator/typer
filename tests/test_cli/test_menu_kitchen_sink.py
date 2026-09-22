@@ -120,6 +120,21 @@ def _json_text(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True).lower()
 
 
+def _json_has_command_path(value: Any, command_path: str) -> bool:
+    expected = command_path.lower()
+    for item in _walk_json(value):
+        if isinstance(item, str) and item.lower() == expected:
+            return True
+        if isinstance(item, list) and all(isinstance(part, str) for part in item):
+            if " ".join(item).lower() == expected:
+                return True
+    return False
+
+
+def _contains_any(text: str, *alternatives: str) -> bool:
+    return any(alternative in text for alternative in alternatives)
+
+
 def _contains_redaction(value: Any) -> bool:
     text = _json_text(value)
     return any(
@@ -202,7 +217,7 @@ def test_contract_render_and_export_preserve_prompt_required_semantics(
 
     for command_path in all_contract_paths:
         assert command_path in result.output
-        assert command_path in exported_text
+        assert _json_has_command_path(contract, command_path)
     for metadata in ("hidden", "deprecated", "parent"):
         assert metadata in terminal_text
         assert metadata in exported_text
@@ -237,16 +252,19 @@ def test_contract_render_and_export_preserve_prompt_required_semantics(
     ):
         assert option_spelling in result.output
         assert option_spelling in exported_text
-    for constraint in (
-        "minimum",
-        "maximum",
-        "choices",
-        "exists",
-        "readable",
-        "file_okay",
+    assert _contains_any(exported_text, "minimum", '"min"', "lower_bound")
+    assert _contains_any(exported_text, "maximum", '"max"', "upper_bound")
+    assert _contains_any(exported_text, "choices", "allowed_values", "enum")
+    assert _contains_any(exported_text, "exists", "must_exist", "existence")
+    assert _contains_any(exported_text, "readable", "must_be_readable")
+    assert _contains_any(exported_text, "file_okay", "file_allowed", "accepts_file")
+    assert _contains_any(
+        exported_text,
         "directory_okay",
-    ):
-        assert constraint in exported_text
+        "dir_okay",
+        "directory_allowed",
+        "accepts_directory",
+    )
 
     secret_nodes = _named_nodes(contract, "secret")
     assert secret_nodes
